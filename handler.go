@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"time"
 
 	wl_http "github.com/wsva/lib_go/http"
@@ -307,7 +308,7 @@ func handleLogout(w http.ResponseWriter, r *http.Request, next http.HandlerFunc)
 	wl_http.RespondSuccess(w)
 }
 
-func handleUpdate(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+func handleAccountUpdate(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	if !CheckAuthorization(r).Authorized {
 		wl_http.RespondError(w, "unauthorized")
 		return
@@ -376,11 +377,36 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, next http.HandlerFu
 	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
 
-/*
-func handleGetMenu(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	menuList, err := queryMenuFromDatabase(r)
+func handleAccountAll(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+	if !CheckAuthorization(r).Authorized {
+		wl_http.RespondError(w, "unauthorized")
+		return
+	}
+
+	list, err := db.QueryAccountAll(&cc.DB)
 	if err != nil {
-		wl_http.RespondError(w, err)
+		wl_http.RespondError(w, "database error")
+		return
+	}
+	resp := wl_http.Response{
+		Success: true,
+		Data: wl_http.ResponseData{
+			List: list,
+		},
+	}
+	resp.DoResponse(w)
+}
+
+func handleMenuAll(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+	ai := CheckAuthorization(r)
+	if !ai.Authorized {
+		wl_http.RespondError(w, "unauthorized")
+		return
+	}
+
+	menuList, err := db.QueryMenuAll(&cc.DB, ai.AccountID)
+	if err != nil {
+		wl_http.RespondError(w, "database error")
 		return
 	}
 	resp := wl_http.Response{
@@ -392,100 +418,34 @@ func handleGetMenu(w http.ResponseWriter, r *http.Request, next http.HandlerFunc
 	resp.DoResponse(w)
 }
 
-func handleGetAll(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	if r.Method == "GET" {
-		list, err := queryAllAccountsFromDatabase()
-		if err != nil {
-			wl_http.RespondError(w, err)
-			return
-		}
-		resp := wl_http.Response{
-			Success: true,
-			Data: wl_http.ResponseData{
-				List: list,
-			},
-		}
-		resp.DoResponse(w)
-	}
-}
-
-func handleCheckLogin(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	token, err := ParseTokenFromRequest(r)
-	if err != nil {
-		fmt.Println(err)
-		w.WriteHeader(http.StatusUnauthorized)
-		return
-	}
-	_, _, err = checkTokenInDatabase(token)
-	if err != nil {
-		fmt.Println(err)
-		w.WriteHeader(http.StatusUnauthorized)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-}
-
 func handleCheckMenuAccess(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+	ai := CheckAuthorization(r)
+	if !ai.Authorized {
+		wl_http.RespondError(w, "unauthorized")
+		return
+	}
+
 	req, err := wl_http.ParseRequest(r, 1024)
 	if err != nil {
-		fmt.Println(err)
-		w.WriteHeader(http.StatusForbidden)
+		wl_http.RespondError(w, "read error")
 		return
 	}
 	var msg struct {
-		AccountID string `json:"account"`
-		MenuURL   string `json:"menu_url"`
+		MenuURL string `json:"menu_url"`
 	}
 	err = json.Unmarshal(req.Data, &msg)
 	if err != nil {
-		fmt.Println(err, req.Data)
-		w.WriteHeader(http.StatusForbidden)
+		wl_http.RespondError(w, "read error")
 		return
 	}
 
 	reg := regexp.MustCompile(`/$`)
 	msg.MenuURL = reg.ReplaceAllString(msg.MenuURL, "")
 
-	err = checkMenuAccessFromDatabase(msg.AccountID, msg.MenuURL)
+	err = db.CheckMenuAccess(&cc.DB, ai.AccountID, msg.MenuURL)
 	if err != nil {
-		fmt.Println(msg.AccountID, msg.MenuURL, err)
-		w.WriteHeader(http.StatusForbidden)
+		wl_http.RespondError(w, "database error")
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	wl_http.RespondSuccess(w)
 }
-
-func handleCheckAndRefreshToken(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	if r.Method == "POST" {
-		body, err := io.ReadAll(io.LimitReader(r.Body, 1024))
-		if err != nil {
-			io.WriteString(w, err.Error())
-			return
-		}
-		_, _, err = checkTokenInDatabase(string(body))
-		if err != nil {
-			io.WriteString(w, err.Error())
-			return
-		}
-		refreshTokenInDatabase(string(body))
-		io.WriteString(w, wl_int.SUCCESS)
-	}
-}
-
-func handleCheckToken(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	token, err := ParseTokenFromRequest(r)
-	if err != nil {
-		fmt.Println("check token error: ", err)
-		w.WriteHeader(http.StatusUnauthorized)
-		return
-	}
-	_, _, err = checkTokenInDatabase(token)
-	if err != nil {
-		fmt.Println("check token error: ", err)
-		w.WriteHeader(http.StatusUnauthorized)
-		return
-	}
-	refreshTokenInDatabase(token)
-	next(w, r)
-}
-*/

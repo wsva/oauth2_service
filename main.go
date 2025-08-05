@@ -61,7 +61,19 @@ func main() {
 		))
 	router.Methods("POST").Path("/account/update").Handler(
 		negroni.New(
-			negroni.HandlerFunc(handleUpdate),
+			negroni.HandlerFunc(handleAccountUpdate),
+		))
+	router.Methods("GET").Path("/account/all").Handler(
+		negroni.New(
+			negroni.HandlerFunc(handleAccountAll),
+		))
+	router.Methods("GET").Path("/menu/all").Handler(
+		negroni.New(
+			negroni.HandlerFunc(handleMenuAll),
+		))
+	router.Methods("POST").Path("/menu/access").Handler(
+		negroni.New(
+			negroni.HandlerFunc(handleCheckMenuAccess),
 		))
 
 	router.Methods("GET").Path("/register").Handler(

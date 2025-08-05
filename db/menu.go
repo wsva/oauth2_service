@@ -2,13 +2,9 @@ package db
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
-	"net/http"
 
 	wl_db "github.com/wsva/lib_go_db"
-
-	wl_int "github.com/wsva/lib_go_integration"
 )
 
 type Menu struct {
@@ -34,8 +30,8 @@ func (m *MenuGroup) Add(menuName, menuURL string) {
 	})
 }
 
-func checkMenuAccessFromDatabase(account, menuUrl string, db *wl_db.DB) error {
-	var rows *sql.Rows
+func CheckMenuAccess(db *wl_db.DB, account, menuUrl string) error {
+	var row *sql.Row
 	var err error
 	switch db.Type {
 	case wl_db.DBTypeOracle, wl_db.DBTypeMySQL, wl_db.DBTypePostgreSQL:
@@ -44,31 +40,19 @@ func checkMenuAccessFromDatabase(account, menuUrl string, db *wl_db.DB) error {
 			"where a.menu_role=b.menu_role and a.account_id='%v' "+
 			"and b.menu_url='%v'",
 			sqlsafe(account), sqlsafe(menuUrl))
-		rows, err = db.Query(sqltext)
+		row, err = db.QueryRow(sqltext)
 	default:
 		return fmt.Errorf("invalid DBType %v", db.Type)
 	}
-	if err != nil {
+	if err != nil || row.Err() != nil {
 		return err
 	}
-	rowsCount := 0
-	for rows.Next() {
-		rowsCount++
-	}
-	rows.Close()
-	if rowsCount > 0 {
-		return nil
-	}
-	return errors.New("no data found")
+	return nil
 }
 
-func queryMenuFromDatabase(r *http.Request, db *wl_db.DB) ([]MenuGroup, error) {
-	token, err := wl_int.ParseTokenFromRequest(r)
-	if err != nil {
-		return nil, err
-	}
-
+func QueryMenuAll(db *wl_db.DB, account_id string) ([]MenuGroup, error) {
 	var rows *sql.Rows
+	var err error
 	var result []MenuGroup
 	switch db.Type {
 	case wl_db.DBTypeOracle, wl_db.DBTypeMySQL, wl_db.DBTypePostgreSQL:
@@ -77,16 +61,14 @@ func queryMenuFromDatabase(r *http.Request, db *wl_db.DB) ([]MenuGroup, error) {
 	from
 		sys_account a,
 		sys_menu m,
-		sys_menu_role mr, 
-		sys_token t 
+		sys_menu_role mr
 	where
 		a.menu_role = mr.menu_role 
 		and m.menu_url = mr.menu_url 
 		and m.directory = 'N' 
 		and m.show_menu = 'Y'
-		and a.account_id = t.account_id 
-		and t.token = '%v' 
-	order by m.rank`, sqlsafe(token))
+		and a.account_id = '%v' 
+	order by m.rank`, sqlsafe(account_id))
 		rows, err = db.Query(sqltext)
 	default:
 		return nil, fmt.Errorf("invalid DBType %v", db.Type)

@@ -117,14 +117,14 @@ func (a *Account) DBUpdate(db *wl_db.DB) error {
 	}
 }
 
-func queryAllAccountsFromDatabase(db *wl_db.DB) ([]Account, error) {
+func QueryAccountAll(db *wl_db.DB) ([]Account, error) {
 	var rows *sql.Rows
 	var err error
 	var result []Account
 	switch db.Type {
 	case wl_db.DBTypeOracle, wl_db.DBTypeMySQL, wl_db.DBTypePostgreSQL:
-		sqltext := fmt.Sprint("select a.account_ID, a.Username, " +
-			"a.RealName, a.PhoneNumber, a.Valid " +
+		sqltext := fmt.Sprint("select a.account_id, a.username, " +
+			"a.realname, a.phonenumber, a.valid " +
 			"from sys_account a")
 		rows, err = db.Query(sqltext)
 	default:
