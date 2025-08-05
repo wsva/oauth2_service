@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link type="text/css" rel="stylesheet" href="/css/bootstrap-3.4.1.min.css">
+    <script type="text/javascript" src="/js/jquery-3.7.1.min.js"></script>
+    <!--[if IE 8]>
+    <script type="text/javascript" src="/js/jquery-1.12.4.min.js"></script>
+    <![endif]-->
+    <script language="JavaScript">
+        setTimeout(function () { location.reload() }, 60000);
+    </script>
+    <style>
+        body {
+            background-color: #f5f5f5;
+            margin: 0;
+        }
+
+        .container-full {
+            height: 100vh;
+            display: table;
+            width: 100%;
+        }
+
+        .table-cell-middle {
+            display: table-cell;
+            vertical-align: middle;
+            padding: 0 15px;
+        }
+
+        .dashboard-container {
+            max-width: 500px;
+            background-color: #fff;
+            padding: 30px;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            margin: 0 auto;
+        }
+
+        .title {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+
+        .logout-btn {
+            margin-top: 20px;
+        }
+
+        .user-info {
+            font-size: 16px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container-full">
+        <div class="table-cell-middle">
+            <div class="row">
+                <div class="col-sm-6 col-sm-offset-3 col-md-4 col-md-offset-4">
+                    <div class="dashboard-container">
+                        <h3 class="title">Welcome</h3>
+
+                        <div class="user-info">
+                            <p><strong>Email:</strong> <span id="user-email">Loading...</span></p>
+                            <p><strong>Username:</strong> <span id="user-username">Loading...</span></p>
+                            <p><strong>Real Name:</strong> <span id="user-realname">Loading...</span></p>
+                            <p><strong>Phone Number:</strong> <span id="user-phonenumber">Loading...</span></p>
+                        </div>
+
+                        <button id="logout-btn" class="btn btn-danger btn-block logout-btn">Logout</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        $(function () {
+            $.getJSON("/userinfo", function (data) {
+                if (data && data.success) {
+                    const account = data.data.list[0];
+                    $("#user-email").text(account.ID);
+                    $("#user-username").text(account.Username);
+                    $("#user-realname").text(account.RealName);
+                    $("#user-phonenumber").text(account.PhoneNumber);
+                }
+            }).fail(function (jqXHR, textStatus, errorThrown) {
+                console.error(textStatus);
+                console.error(jqXHR.status);
+                console.error(jqXHR.responseText);
+                console.error(errorThrown);
+                $("#user-email").text("Failed to load");
+            });
+
+            $('#logout-btn').click(function () {
+                $.post("/logout", function () {
+                    window.location.href = "/login";
+                }).fail(function () {
+                    alert("Logout failed");
+                });
+            });
+        });
+    </script>
+</body>
+
+</html>

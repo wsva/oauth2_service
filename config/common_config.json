@@ -1,0 +1,30 @@
+{
+  "AuthService": "https://10.0.0.1:33001",
+  "DB": {
+    "ID": "",
+    "Type": "PostgreSQL",
+    "Oracle": {
+      "Username": "system",
+      "Password": "system",
+      "ConnectString": "127.0.0.1:1521/xepdb1"
+    },
+    "MySQL": {
+      "DSN": "",
+      "Username": "",
+      "Password": "",
+      "Address": "",
+      "DBName": ""
+    },
+    "PostgreSQL": {
+      "Host": "was_db",
+      "Port": 5432,
+      "Username": "postgres",
+      "Password": "passwddev",
+      "Database": "was",
+      "SSLMode": false
+    },
+    "SQLite": {
+      "Datafile": ""
+    }
+  }
+}
