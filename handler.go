@@ -10,11 +10,13 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	wl_http "github.com/wsva/lib_go/http"
 	wl_net "github.com/wsva/lib_go/net"
+	wl_int "github.com/wsva/lib_go_integration"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/wsva/oauth2_service/db"
+	"github.com/wsva/auth_service/db"
 )
 
 func handleSignUp(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
@@ -92,8 +94,8 @@ func handleSignIn(w http.ResponseWriter, r *http.Request, next http.HandlerFunc)
 		return
 	}
 
-	ip := wl_net.GetIPFromRequest(r).String()
-	accessToken, refreshToken, err := GenerateToken(account.ID, ip, privateKey)
+	claims := NewClaims(account.ID, "auth_service")
+	accessToken, refreshToken, err := GenerateToken(privateKey, claims)
 	if loginAudit.Abnormal(account.ID, realip) {
 		wl_http.RespondError(w, "token error")
 		return
@@ -102,7 +104,7 @@ func handleSignIn(w http.ResponseWriter, r *http.Request, next http.HandlerFunc)
 	token := db.Token{
 		Token:     accessToken,
 		AccoundID: account.ID,
-		IP:        ip,
+		IP:        wl_net.GetIPFromRequest(r).String(),
 		LoginAt:   time.Now(),
 		ExpireAt:  time.Now().Add(7 * 24 * time.Hour),
 	}
@@ -112,10 +114,10 @@ func handleSignIn(w http.ResponseWriter, r *http.Request, next http.HandlerFunc)
 		return
 	}
 
-	SetCookieToken(w, "access_token", accessToken)
-	SetCookieToken(w, "refresh_token", refreshToken)
+	wl_int.SetCookieToken(w, "access_token", accessToken, int(7*24*time.Hour/time.Second))
+	wl_int.SetCookieToken(w, "refresh_token", refreshToken, int(7*24*time.Hour/time.Second))
 
-	wl_http.RespondAny(w, wl_http.Response{
+	wl_http.RespondJSON(w, wl_http.Response{
 		Success: true,
 		Data: wl_http.ResponseData{
 			List: []string{
@@ -126,30 +128,19 @@ func handleSignIn(w http.ResponseWriter, r *http.Request, next http.HandlerFunc)
 }
 
 func handleToken(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	req, err := wl_http.ParseRequest(r, 1024)
-	if err != nil {
-		wl_http.RespondError(w, "read error")
-		return
-	}
+	code := r.FormValue("code")
+	code_verifier := r.FormValue("code_verifier")
+	//grant_type := r.FormValue("grant_type")
+	//redirect_uri := r.FormValue("redirect_uri")
 
-	var obj struct {
-		Code     string `json:"code"`
-		Verifier string `json:"verifier"`
-	}
-	err = json.Unmarshal(req.Data, &obj)
-	if err != nil {
-		wl_http.RespondError(w, "unmarshal error")
-		return
-	}
-
-	account_id, ok := codeMap.VerifyChallenge(obj.Code, obj.Verifier)
+	codeObj, ok := codeMap.VerifyChallenge(code, code_verifier)
 	if !ok {
 		wl_http.RespondError(w, "code error")
 		return
 	}
 
-	ip := wl_net.GetIPFromRequest(r).String()
-	accessToken, refreshToken, err := GenerateToken(account_id, ip, privateKey)
+	claims := NewClaims(codeObj.AccountID, codeObj.ClientID)
+	accessToken, refreshToken, err := GenerateToken(privateKey, claims)
 	if err != nil {
 		wl_http.RespondError(w, err)
 		return
@@ -157,8 +148,8 @@ func handleToken(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) 
 
 	token := db.Token{
 		Token:     accessToken,
-		AccoundID: account_id,
-		IP:        ip,
+		AccoundID: codeObj.AccountID,
+		IP:        wl_net.GetIPFromRequest(r).String(),
 		LoginAt:   time.Now(),
 		ExpireAt:  time.Now().Add(7 * 24 * time.Hour),
 	}
@@ -168,37 +159,31 @@ func handleToken(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) 
 		return
 	}
 
-	wl_http.RespondAny(w, wl_http.Response{
-		Success: true,
-		Data: wl_http.ResponseData{
-			List: []map[string]any{
-				{
-					"access_token":  accessToken,
-					"refresh_token": refreshToken,
-					"max_age":       7 * 24 * time.Hour / time.Second,
-				},
-			},
-		},
+	wl_http.RespondJSON(w, map[string]any{
+		"access_token":  accessToken,
+		"token_type":    "Bearer",
+		"refresh_token": refreshToken,
+		"expires_in":    7 * 24 * time.Hour / time.Second,
+		"scope":         codeObj.Scope,
+		"id_token":      accessToken,
 	})
 }
 
+/*
+response_type=code
+code_challenge_method=S256
+*/
 func handleAuthorize(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	query := r.URL.Query()
-	challenge := query.Get("code_challenge")
-	redirectUri := query.Get("redirect_uri")
-	if challenge == "" {
-		wl_http.RespondError(w, "missing code_challenge")
-		return
-	}
-	if redirectUri == "" {
-		wl_http.RespondError(w, "missing redirect_uri")
-		return
-	}
+	scope := r.FormValue("scope")
+	client_id := r.FormValue("client_id")
+	state := r.FormValue("state")
+	code_challenge := r.FormValue("code_challenge")
+	redirect_uri := r.FormValue("redirect_uri")
 
 	ai := CheckAuthorization(r)
 	if ai.Authorized {
-		code := codeMap.NewCode(ai.AccountID, challenge)
-		http.Redirect(w, r, fmt.Sprintf("%s?code=%s", redirectUri, code), http.StatusFound)
+		code := codeMap.NewCode(scope, client_id, ai.AccountID, code_challenge)
+		http.Redirect(w, r, fmt.Sprintf("%s?code=%s&state=%v", redirect_uri, code, state), http.StatusFound)
 		return
 	}
 	redirectURL := "/login?return_to=" + url.QueryEscape(r.URL.String())
@@ -237,55 +222,48 @@ func handleRevoke(w http.ResponseWriter, r *http.Request, next http.HandlerFunc)
 func handleUserInfo(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	ai := CheckAuthorization(r)
 	if !ai.Authorized {
-		wl_http.RespondError(w, "unauthorized")
+		w.WriteHeader(http.StatusUnauthorized)
+		wl_http.RespondJSON(w, map[string]any{
+			"error":             "invalid_token",
+			"error_description": "Access token is missing or invalid",
+		})
 		return
 	}
 
 	account := db.Account{ID: ai.AccountID}
 	err := account.DBQuery(&cc.DB)
 	if err != nil {
-		wl_http.RespondError(w, "database error")
+		w.WriteHeader(http.StatusInternalServerError)
+		wl_http.RespondJSON(w, map[string]any{
+			"error":             "internal_server_error",
+			"error_description": "Query database error",
+		})
 		return
 	}
 
-	wl_http.RespondAny(w, wl_http.Response{
-		Success: true,
-		Data: wl_http.ResponseData{
-			List: []db.Account{account},
-		},
+	wl_http.RespondJSON(w, wl_int.UserInfo{
+		Name:  account.RealName,
+		Email: account.ID,
 	})
 }
 
 func handleIntrospect(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	ai := CheckAuthorization(r)
-	if ai.Authorized {
-		wl_http.RespondAny(w, map[string]any{
-			"active": true,
-			"sub":    ai.AccountID,
-		})
+	access_token := r.FormValue("token")
+	token, err := jwt.Parse(access_token, func(t *jwt.Token) (any, error) {
+		return publicKey, nil
+	})
+	if err == nil && token.Valid {
+		wl_http.RespondJSON(w, wl_int.IntrospectResponse{Active: true})
 		return
 	}
-	wl_http.RespondAny(w, map[string]any{"active": false})
-
-	/*
-		token, err := jwt.Parse(ai.AccessToken, func(t *jwt.Token) (any, error) {
-			return publicKey, nil
-		})
-		if err != nil || !token.Valid {
-			wl_http.RespondAny(w, map[string]any{"active": false})
-			return
-		}
-
-		claims := token.Claims.(jwt.RegisteredClaims)
-		wl_http.RespondAny(w, map[string]any{
-			"active": true,
-			"sub":    claims.Subject,
-		})
-	*/
+	if err != nil {
+		fmt.Println(err)
+	}
+	wl_http.RespondJSON(w, wl_int.IntrospectResponse{Active: false})
 }
 
 func handleJwks(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	wl_http.RespondAny(w, map[string]any{
+	wl_http.RespondJSON(w, map[string]any{
 		"keys": []map[string]any{
 			{
 				"kty": "OKP",     // Octet Key Pair
@@ -297,13 +275,13 @@ func handleJwks(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 }
 
 func handleLogout(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	tokenString, err := ParseTokenFromRequest(r)
+	tokenString, err := wl_int.ParseTokenFromRequest(r)
 	if err == nil {
 		(&db.Token{Token: tokenString}).DBDelete(&cc.DB)
 	}
 
-	DeleteCookieToken(w, "access_token")
-	DeleteCookieToken(w, "refresh_token")
+	wl_int.DeleteCookieToken(w, "access_token")
+	wl_int.DeleteCookieToken(w, "refresh_token")
 
 	wl_http.RespondSuccess(w)
 }

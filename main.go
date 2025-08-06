@@ -91,6 +91,7 @@ func main() {
 
 	server := negroni.New(negroni.NewRecovery())
 	//server.Use(bha.NewCORSHandler(nil, nil, nil))
+	server.Use(negroni.NewLogger())
 	server.UseHandler(router)
 
 	for _, v := range mainConfig.ListenList {

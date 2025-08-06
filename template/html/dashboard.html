@@ -10,6 +10,7 @@
     <!--[if IE 8]>
     <script type="text/javascript" src="/js/jquery-1.12.4.min.js"></script>
     <![endif]-->
+    <script type="text/javascript" src="/js/bootstrap-3.4.1.min.js"></script>
     <script language="JavaScript">
         setTimeout(function () { location.reload() }, 60000);
     </script>
@@ -65,9 +66,7 @@
 
                         <div class="user-info">
                             <p><strong>Email:</strong> <span id="user-email">Loading...</span></p>
-                            <p><strong>Username:</strong> <span id="user-username">Loading...</span></p>
                             <p><strong>Real Name:</strong> <span id="user-realname">Loading...</span></p>
-                            <p><strong>Phone Number:</strong> <span id="user-phonenumber">Loading...</span></p>
                         </div>
 
                         <button id="logout-btn" class="btn btn-danger btn-block logout-btn">Logout</button>
@@ -80,13 +79,8 @@
     <script>
         $(function () {
             $.getJSON("/userinfo", function (data) {
-                if (data && data.success) {
-                    const account = data.data.list[0];
-                    $("#user-email").text(account.ID);
-                    $("#user-username").text(account.Username);
-                    $("#user-realname").text(account.RealName);
-                    $("#user-phonenumber").text(account.PhoneNumber);
-                }
+                $("#user-email").text(data.sub);
+                $("#user-realname").text(data.name);
             }).fail(function (jqXHR, textStatus, errorThrown) {
                 console.error(textStatus);
                 console.error(jqXHR.status);
