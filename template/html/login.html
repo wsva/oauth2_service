@@ -97,6 +97,7 @@
                             const returnTo = getQueryParam("return_to") || "/";
                             window.location.href = returnTo;
                         } else {
+                            console.log(response)
                             $('#alert-box').text("login failed").show();
                         }
                     },

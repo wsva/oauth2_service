@@ -1,7 +1,7 @@
 package main
 
 import (
-	"crypto/ed25519"
+	"crypto/rsa"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
@@ -30,8 +30,8 @@ var (
 	CACrtFile      = path.Join(wl_int.DirPKI, wl_int.CACrtFile)
 	ServerCrtFile  = path.Join(wl_int.DirPKI, wl_int.ServerCrtFile)
 	ServerKeyFile  = path.Join(wl_int.DirPKI, wl_int.ServerKeyFile)
-	Ed25519KeyFile = path.Join("key", "ed25519.key")
-	Ed25519PubFile = path.Join("key", "ed25519.pub")
+	RSAKeyFile     = path.Join("key", "rsa.key")
+	RSAPubFile     = path.Join("key", "rsa.pub")
 )
 
 var mainConfig MainConfig
@@ -40,8 +40,8 @@ var cc *wl_int.CommonConfig
 var loginAudit *LoginAudit
 
 var (
-	privateKey ed25519.PrivateKey
-	publicKey  ed25519.PublicKey
+	privateKey *rsa.PrivateKey
+	publicKey  *rsa.PublicKey
 )
 
 var codeMap *CodeMap
@@ -75,11 +75,11 @@ func initGlobals() error {
 		IPMap:      make(map[string]map[int64]int),
 	}
 
-	privateKey, err = LoadPrivateKey(path.Join(Basepath, Ed25519KeyFile))
+	privateKey, err = LoadPrivateKey(path.Join(Basepath, RSAKeyFile))
 	if err != nil {
 		return err
 	}
-	publicKey, err = LoadPublicKey(path.Join(Basepath, Ed25519PubFile))
+	publicKey, err = LoadPublicKey(path.Join(Basepath, RSAPubFile))
 	if err != nil {
 		return err
 	}
@@ -91,7 +91,7 @@ func initGlobals() error {
 	return nil
 }
 
-func LoadPrivateKey(filePath string) (ed25519.PrivateKey, error) {
+func LoadPrivateKey(filePath string) (*rsa.PrivateKey, error) {
 	contentBytes, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("%v does not exist", filePath)
@@ -102,18 +102,20 @@ func LoadPrivateKey(filePath string) (ed25519.PrivateKey, error) {
 		return nil, errors.New("invalid key")
 	}
 
-	parsedKey, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-	if err != nil {
-		return nil, err
+	var parsedKey any
+	if parsedKey, err = x509.ParsePKCS1PrivateKey(block.Bytes); err != nil {
+		if parsedKey, err = x509.ParsePKCS8PrivateKey(block.Bytes); err != nil {
+			return nil, err
+		}
 	}
 
-	if pkey, ok := parsedKey.(ed25519.PrivateKey); ok {
+	if pkey, ok := parsedKey.(*rsa.PrivateKey); ok {
 		return pkey, nil
 	}
 	return nil, errors.New("invalid key")
 }
 
-func LoadPublicKey(filePath string) (ed25519.PublicKey, error) {
+func LoadPublicKey(filePath string) (*rsa.PublicKey, error) {
 	contentBytes, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("%v does not exist", filePath)
@@ -124,12 +126,18 @@ func LoadPublicKey(filePath string) (ed25519.PublicKey, error) {
 		return nil, errors.New("invalid key")
 	}
 
-	parsedKey, err := x509.ParsePKIXPublicKey(block.Bytes)
-	if err != nil {
-		return nil, err
+	var parsedKey any
+	if parsedKey, err = x509.ParsePKIXPublicKey(block.Bytes); err != nil {
+		if cert, err := x509.ParseCertificate(block.Bytes); err == nil {
+			parsedKey = cert.PublicKey
+		} else {
+			if parsedKey, err = x509.ParsePKCS1PublicKey(block.Bytes); err != nil {
+				return nil, err
+			}
+		}
 	}
 
-	if pkey, ok := parsedKey.(ed25519.PublicKey); ok {
+	if pkey, ok := parsedKey.(*rsa.PublicKey); ok {
 		return pkey, nil
 	}
 	return nil, errors.New("invalid key")

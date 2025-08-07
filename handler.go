@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,7 +9,6 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	wl_http "github.com/wsva/lib_go/http"
 	wl_net "github.com/wsva/lib_go/net"
 	wl_int "github.com/wsva/lib_go_integration"
@@ -94,21 +92,22 @@ func handleSignIn(w http.ResponseWriter, r *http.Request, next http.HandlerFunc)
 		return
 	}
 
-	claims := NewClaims(account.ID, "auth_service")
+	clientID := "auth_service"
+	claims := NewClaims(account.ID, clientID)
 	accessToken, refreshToken, err := GenerateToken(privateKey, claims)
 	if loginAudit.Abnormal(account.ID, realip) {
 		wl_http.RespondError(w, "token error")
 		return
 	}
 
-	token := db.Token{
-		Token:     accessToken,
-		AccoundID: account.ID,
-		IP:        wl_net.GetIPFromRequest(r).String(),
-		LoginAt:   time.Now(),
-		ExpireAt:  time.Now().Add(7 * 24 * time.Hour),
+	dt := db.Token{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		ClientID:     clientID,
+		AccountID:    account.ID,
+		IP:           wl_net.GetIPFromRequest(r).String(),
 	}
-	err = token.DBInsert(&cc.DB)
+	err = dt.DBInsert(&cc.DB)
 	if err != nil {
 		wl_http.RespondError(w, "database error")
 		return
@@ -146,14 +145,14 @@ func handleToken(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) 
 		return
 	}
 
-	token := db.Token{
-		Token:     accessToken,
-		AccoundID: codeObj.AccountID,
-		IP:        wl_net.GetIPFromRequest(r).String(),
-		LoginAt:   time.Now(),
-		ExpireAt:  time.Now().Add(7 * 24 * time.Hour),
+	dt := db.Token{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		ClientID:     codeObj.ClientID,
+		AccountID:    codeObj.AccountID,
+		IP:           wl_net.GetIPFromRequest(r).String(),
 	}
-	err = token.DBInsert(&cc.DB)
+	err = dt.DBInsert(&cc.DB)
 	if err != nil {
 		wl_http.RespondError(w, "database error")
 		return
@@ -180,9 +179,9 @@ func handleAuthorize(w http.ResponseWriter, r *http.Request, next http.HandlerFu
 	code_challenge := r.FormValue("code_challenge")
 	redirect_uri := r.FormValue("redirect_uri")
 
-	ai := CheckAuthorization(r)
+	ai := CheckAuthorization(r, true)
 	if ai.Authorized {
-		code := codeMap.NewCode(scope, client_id, ai.AccountID, code_challenge)
+		code := codeMap.NewCode(scope, client_id, ai.Token.AccountID, code_challenge)
 		http.Redirect(w, r, fmt.Sprintf("%s?code=%s&state=%v", redirect_uri, code, state), http.StatusFound)
 		return
 	}
@@ -191,36 +190,21 @@ func handleAuthorize(w http.ResponseWriter, r *http.Request, next http.HandlerFu
 }
 
 func handleRevoke(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	ai := CheckAuthorization(r)
+	ai := CheckAuthorization(r, false)
 	if !ai.Authorized {
 		wl_http.RespondError(w, "unauthorized")
 		return
 	}
-	err := (&db.Token{Token: ai.AccessToken}).DBDelete(&cc.DB)
+	err := ai.Token.DBDelete(&cc.DB)
 	if err != nil {
 		wl_http.RespondError(w, "revoke error")
 		return
 	}
 	wl_http.RespondSuccess(w)
-
-	/*
-		req, err := wl_http.ParseRequest(r, 1024)
-		if err != nil {
-			wl_http.RespondError(w, "read error")
-			return
-		}
-
-		var token db.Token
-		err = json.Unmarshal(req.Data, &token)
-		if err != nil {
-			wl_http.RespondError(w, "unmarshal error")
-			return
-		}
-	*/
 }
 
 func handleUserInfo(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	ai := CheckAuthorization(r)
+	ai := CheckAuthorization(r, false)
 	if !ai.Authorized {
 		w.WriteHeader(http.StatusUnauthorized)
 		wl_http.RespondJSON(w, map[string]any{
@@ -229,46 +213,32 @@ func handleUserInfo(w http.ResponseWriter, r *http.Request, next http.HandlerFun
 		})
 		return
 	}
-
-	account := db.Account{ID: ai.AccountID}
-	err := account.DBQuery(&cc.DB)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		wl_http.RespondJSON(w, map[string]any{
-			"error":             "internal_server_error",
-			"error_description": "Query database error",
-		})
-		return
-	}
-
 	wl_http.RespondJSON(w, wl_int.UserInfo{
-		Name:  account.RealName,
-		Email: account.ID,
+		Name:  ai.Name,
+		Email: ai.Email,
 	})
 }
 
 func handleIntrospect(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	access_token := r.FormValue("token")
-	token, err := jwt.Parse(access_token, func(t *jwt.Token) (any, error) {
-		return publicKey, nil
-	})
-	if err == nil && token.Valid {
-		wl_http.RespondJSON(w, wl_int.IntrospectResponse{Active: true})
-		return
-	}
+	_, _, err := VerifyAccessToken(r.FormValue("token"))
 	if err != nil {
 		fmt.Println(err)
+		wl_http.RespondJSON(w, wl_int.IntrospectResponse{Active: false})
+		return
 	}
-	wl_http.RespondJSON(w, wl_int.IntrospectResponse{Active: false})
+	wl_http.RespondJSON(w, wl_int.IntrospectResponse{Active: true})
 }
 
 func handleJwks(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	wl_http.RespondJSON(w, map[string]any{
 		"keys": []map[string]any{
 			{
-				"kty": "OKP",     // Octet Key Pair
-				"crv": "Ed25519", // Curve name
-				"x":   base64.RawURLEncoding.EncodeToString(publicKey),
+				"kid": "1",
+				"kty": "RSA",
+				"use": "sig",
+				"alg": "RS256",
+				"n":   publicKey.N,
+				"e":   publicKey.E,
 			},
 		},
 	})
@@ -277,7 +247,7 @@ func handleJwks(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 func handleLogout(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	tokenString, err := wl_int.ParseTokenFromRequest(r)
 	if err == nil {
-		(&db.Token{Token: tokenString}).DBDelete(&cc.DB)
+		(&db.Token{AccessToken: tokenString}).DBDelete(&cc.DB)
 	}
 
 	wl_int.DeleteCookieToken(w, "access_token")
@@ -287,7 +257,8 @@ func handleLogout(w http.ResponseWriter, r *http.Request, next http.HandlerFunc)
 }
 
 func handleAccountUpdate(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	if !CheckAuthorization(r).Authorized {
+	ai := CheckAuthorization(r, true)
+	if !ai.Authorized {
 		wl_http.RespondError(w, "unauthorized")
 		return
 	}
@@ -301,6 +272,12 @@ func handleAccountUpdate(w http.ResponseWriter, r *http.Request, next http.Handl
 	err = json.Unmarshal(req.Data, &account)
 	if err != nil {
 		wl_http.RespondError(w, err)
+		return
+	}
+
+	// TODO check permission
+	if ai.Token.AccountID != account.ID && ai.Token.AccountID != "admin" {
+		wl_http.RespondError(w, "no permission")
 		return
 	}
 
@@ -330,7 +307,7 @@ func handleAccountUpdate(w http.ResponseWriter, r *http.Request, next http.Handl
 
 // login page in browser
 func handleLogin(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	if CheckAuthorization(r).Authorized {
+	if CheckAuthorization(r, true).Authorized {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
@@ -338,7 +315,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) 
 }
 
 func handleRegister(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	if CheckAuthorization(r).Authorized {
+	if CheckAuthorization(r, true).Authorized {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
@@ -346,7 +323,7 @@ func handleRegister(w http.ResponseWriter, r *http.Request, next http.HandlerFun
 }
 
 func handleDashboard(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	if CheckAuthorization(r).Authorized {
+	if CheckAuthorization(r, true).Authorized {
 		http.ServeFile(w, r, filepath.Join(Basepath, "template/html/dashboard.html"))
 		return
 	}
@@ -356,8 +333,15 @@ func handleDashboard(w http.ResponseWriter, r *http.Request, next http.HandlerFu
 }
 
 func handleAccountAll(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	if !CheckAuthorization(r).Authorized {
+	ai := CheckAuthorization(r, true)
+	if !ai.Authorized {
 		wl_http.RespondError(w, "unauthorized")
+		return
+	}
+
+	// TODO check permission
+	if ai.Token.AccountID != "admin" {
+		wl_http.RespondError(w, "no permission")
 		return
 	}
 
@@ -376,13 +360,13 @@ func handleAccountAll(w http.ResponseWriter, r *http.Request, next http.HandlerF
 }
 
 func handleMenuAll(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	ai := CheckAuthorization(r)
+	ai := CheckAuthorization(r, false)
 	if !ai.Authorized {
 		wl_http.RespondError(w, "unauthorized")
 		return
 	}
 
-	menuList, err := db.QueryMenuAll(&cc.DB, ai.AccountID)
+	menuList, err := db.QueryMenuAll(&cc.DB, ai.Token.AccountID)
 	if err != nil {
 		wl_http.RespondError(w, "database error")
 		return
@@ -397,7 +381,7 @@ func handleMenuAll(w http.ResponseWriter, r *http.Request, next http.HandlerFunc
 }
 
 func handleCheckMenuAccess(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	ai := CheckAuthorization(r)
+	ai := CheckAuthorization(r, false)
 	if !ai.Authorized {
 		wl_http.RespondError(w, "unauthorized")
 		return
@@ -420,7 +404,7 @@ func handleCheckMenuAccess(w http.ResponseWriter, r *http.Request, next http.Han
 	reg := regexp.MustCompile(`/$`)
 	msg.MenuURL = reg.ReplaceAllString(msg.MenuURL, "")
 
-	err = db.CheckMenuAccess(&cc.DB, ai.AccountID, msg.MenuURL)
+	err = db.CheckMenuAccess(&cc.DB, ai.Token.AccountID, msg.MenuURL)
 	if err != nil {
 		wl_http.RespondError(w, "database error")
 		return

@@ -22,11 +22,8 @@ type Account struct {
 func (a *Account) DBInsert(db *wl_db.DB) error {
 	switch db.Type {
 	case wl_db.DBTypeOracle, wl_db.DBTypeMySQL, wl_db.DBTypePostgreSQL:
-		sqltext := fmt.Sprintf("insert into sys_account values "+
-			"('%v', '%v', '%v', '%v', '%v', '%v', '%v')",
-			sqlsafe(a.ID), sqlsafe(a.Username), sqlsafe(a.RealName), sqlsafe(a.PhoneNumber),
-			sqlsafe(a.Passwd), "guest", sqlsafe(a.Valid))
-		_, err := db.Exec(sqltext)
+		query := "insert into sys_account values ($1, $2, $3, $4, $5, $6, $7)"
+		_, err := db.Exec(query, a.ID, a.Username, a.RealName, a.PhoneNumber, a.Passwd, "guest", a.Valid)
 		return err
 	default:
 		return fmt.Errorf("invalid DBType %v", db.Type)
@@ -39,11 +36,9 @@ func (a *Account) Verify(db *wl_db.DB) error {
 	var err error
 	switch db.Type {
 	case wl_db.DBTypeOracle, wl_db.DBTypeMySQL, wl_db.DBTypePostgreSQL:
-		sqltext := fmt.Sprintf("select account_id, realname, passwd from sys_account "+
-			"where account_id='%v' and valid='Y'",
-			sqlsafe(a.ID))
-		fmt.Println(sqltext)
-		row, err = db.QueryRow(sqltext)
+		query := "select account_id, realname, passwd from sys_account " +
+			"where account_id=$1 and valid='Y'"
+		row, err = db.QueryRow(query, a.ID)
 	default:
 		return fmt.Errorf("invalid DBType %v", db.Type)
 	}
@@ -70,11 +65,10 @@ func (a *Account) DBQuery(db *wl_db.DB) error {
 	var err error
 	switch db.Type {
 	case wl_db.DBTypeOracle, wl_db.DBTypeMySQL, wl_db.DBTypePostgreSQL:
-		sqltext := fmt.Sprintf("select a.username, a.realname, a.phonenumber "+
-			"from sys_account a "+
-			"where a.account_id='%v' and a.valid='Y'",
-			sqlsafe(a.ID))
-		row, err = db.QueryRow(sqltext)
+		query := "select a.username, a.realname, a.phonenumber " +
+			"from sys_account a " +
+			"where a.account_id=$1 and a.valid='Y'"
+		row, err = db.QueryRow(query, a.ID)
 	default:
 		return fmt.Errorf("invalid DBType %v", db.Type)
 	}
@@ -95,20 +89,16 @@ func (a *Account) DBQuery(db *wl_db.DB) error {
 func (a *Account) DBUpdate(db *wl_db.DB) error {
 	switch db.Type {
 	case wl_db.DBTypeOracle, wl_db.DBTypeMySQL, wl_db.DBTypePostgreSQL:
-		sqltext := fmt.Sprintf("update sys_account set "+
-			"username='%v', realname='%v', phonenumber='%v', valid='%v' "+
-			"where account_id='%v'",
-			sqlsafe(a.Username), sqlsafe(a.RealName),
-			sqlsafe(a.PhoneNumber), sqlsafe(a.Valid), sqlsafe(a.ID))
-		_, err := db.Exec(sqltext)
+		query := "update sys_account set " +
+			"username=$1, realname=$2, phonenumber=$3, valid=$4 " +
+			"where account_id=$5"
+		_, err := db.Exec(query, a.Username, a.RealName, a.PhoneNumber, a.Valid, a.ID)
 		if err != nil {
 			return err
 		}
 		if a.Passwd != "" {
-			sqltext := fmt.Sprintf("update sys_account set "+
-				"Passwd='%v' where Account_ID='%v'",
-				sqlsafe(a.Passwd), sqlsafe(a.ID))
-			_, err := db.Exec(sqltext)
+			query := "update sys_account set passwd=$1 where account_id=$2"
+			_, err := db.Exec(query, a.Passwd, a.ID)
 			return err
 		}
 		return nil
@@ -123,10 +113,10 @@ func QueryAccountAll(db *wl_db.DB) ([]Account, error) {
 	var result []Account
 	switch db.Type {
 	case wl_db.DBTypeOracle, wl_db.DBTypeMySQL, wl_db.DBTypePostgreSQL:
-		sqltext := fmt.Sprint("select a.account_id, a.username, " +
+		query := fmt.Sprint("select a.account_id, a.username, " +
 			"a.realname, a.phonenumber, a.valid " +
 			"from sys_account a")
-		rows, err = db.Query(sqltext)
+		rows, err = db.Query(query)
 	default:
 		return nil, fmt.Errorf("invalid DBType %v", db.Type)
 	}

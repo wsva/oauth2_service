@@ -10,7 +10,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/wsva/lib_go v1.0.6
-	github.com/wsva/lib_go_db v1.0.2
+	github.com/wsva/lib_go_db v1.0.4
 	github.com/wsva/lib_go_integration v1.0.19
 	golang.org/x/crypto v0.40.0
 )

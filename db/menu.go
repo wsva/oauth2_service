@@ -35,12 +35,11 @@ func CheckMenuAccess(db *wl_db.DB, account, menuUrl string) error {
 	var err error
 	switch db.Type {
 	case wl_db.DBTypeOracle, wl_db.DBTypeMySQL, wl_db.DBTypePostgreSQL:
-		sqltext := fmt.Sprintf("select b.menu_url "+
-			"from sys_account a, sys_menu_role b "+
-			"where a.menu_role=b.menu_role and a.account_id='%v' "+
-			"and b.menu_url='%v'",
-			sqlsafe(account), sqlsafe(menuUrl))
-		row, err = db.QueryRow(sqltext)
+		query := "select b.menu_url " +
+			"from sys_account a, sys_menu_role b " +
+			"where a.menu_role=b.menu_role and a.account_id=$1 " +
+			"and b.menu_url=$2"
+		row, err = db.QueryRow(query, account, menuUrl)
 	default:
 		return fmt.Errorf("invalid DBType %v", db.Type)
 	}
@@ -56,7 +55,7 @@ func QueryMenuAll(db *wl_db.DB, account_id string) ([]MenuGroup, error) {
 	var result []MenuGroup
 	switch db.Type {
 	case wl_db.DBTypeOracle, wl_db.DBTypeMySQL, wl_db.DBTypePostgreSQL:
-		sqltext := fmt.Sprintf(`select
+		query := `select
 		m.subsystem, m.menu_name, m.menu_url 
 	from
 		sys_account a,
@@ -67,9 +66,9 @@ func QueryMenuAll(db *wl_db.DB, account_id string) ([]MenuGroup, error) {
 		and m.menu_url = mr.menu_url 
 		and m.directory = 'N' 
 		and m.show_menu = 'Y'
-		and a.account_id = '%v' 
-	order by m.rank`, sqlsafe(account_id))
-		rows, err = db.Query(sqltext)
+		and a.account_id = $1 
+	order by m.rank`
+		rows, err = db.Query(query, account_id)
 	default:
 		return nil, fmt.Errorf("invalid DBType %v", db.Type)
 	}
